@@ -1,0 +1,35 @@
+{
+  "title": "EONET Events (OrbitGuard fixture)",
+  "events": [
+    {
+      "id": "EONET_8005",
+      "title": "Wildfire - Amazonas, Brazil",
+      "categories": [{ "id": "wildfires", "title": "Wildfires" }],
+      "geometry": [{ "date": "2026-06-06T00:00:00Z", "type": "Point", "coordinates": [-58.4, -3.1] }]
+    },
+    {
+      "id": "EONET_8001",
+      "title": "Wildfire - Para, Brazil",
+      "categories": [{ "id": "wildfires", "title": "Wildfires" }],
+      "geometry": [{ "date": "2026-06-05T00:00:00Z", "type": "Point", "coordinates": [-55.2, -6.8] }]
+    },
+    {
+      "id": "EONET_8002",
+      "title": "Wildfire - Mato Grosso, Brazil",
+      "categories": [{ "id": "wildfires", "title": "Wildfires" }],
+      "geometry": [{ "date": "2026-06-04T00:00:00Z", "type": "Point", "coordinates": [-55.9, -12.4] }]
+    },
+    {
+      "id": "EONET_8003",
+      "title": "Severe Storm - South Atlantic (offshore RJ)",
+      "categories": [{ "id": "severeStorms", "title": "Severe Storms" }],
+      "geometry": [{ "date": "2026-06-03T00:00:00Z", "type": "Point", "coordinates": [-42.1, -23.5] }]
+    },
+    {
+      "id": "EONET_8004",
+      "title": "Flood - Rio Grande do Sul, Brazil",
+      "categories": [{ "id": "floods", "title": "Floods" }],
+      "geometry": [{ "date": "2026-06-02T00:00:00Z", "type": "Point", "coordinates": [-51.2, -29.7] }]
+    }
+  ]
+}

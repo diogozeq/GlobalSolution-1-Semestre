@@ -1,0 +1,6 @@
+# OrbitGuard AI - optional RAG dependency (best-effort).
+# If chromadb is installed, the RAG index uses semantic embeddings
+# (ChromaDB DefaultEmbeddingFunction = all-MiniLM-L6-v2 via onnxruntime).
+# If it is NOT installed, the app automatically falls back to a pure-Python
+# TF-IDF retriever (app/rag/fallback.py) so the demo never breaks.
+chromadb>=0.5

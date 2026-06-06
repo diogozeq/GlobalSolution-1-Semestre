@@ -1,0 +1,18 @@
+{
+  "latitude": -15.79,
+  "longitude": -47.93,
+  "timezone": "UTC",
+  "current_units": {
+    "temperature_2m": "°C",
+    "relative_humidity_2m": "%",
+    "precipitation": "mm",
+    "wind_speed_10m": "km/h"
+  },
+  "current": {
+    "time": "2026-06-06T18:00",
+    "temperature_2m": 34.0,
+    "relative_humidity_2m": 28,
+    "precipitation": 0.2,
+    "wind_speed_10m": 16.0
+  }
+}

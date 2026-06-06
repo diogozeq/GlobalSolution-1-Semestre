@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-on-surface;
+    font-family: "Inter", sans-serif;
+    overflow: hidden;
+  }
+  .material-symbols-outlined {
+    font-family: "Material Symbols Outlined";
+    font-weight: normal;
+    font-style: normal;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+    vertical-align: middle;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Scrollbars — terminal aesthetic */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1c2d;
+}
+::-webkit-scrollbar-thumb {
+  background: #3c4a5e;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #22d3ee;
+}
+
+/* Risk glows */
+.risk-glow-critical {
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+.risk-glow-high {
+  box-shadow: 0 0 15px rgba(249, 115, 22, 0.2);
+  border: 1px solid rgba(249, 115, 22, 0.4);
+}
+
+@keyframes pulse-cyan {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-pulse-cyan {
+  animation: pulse-cyan 2s infinite ease-in-out;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fade-in 0.35s ease-out both;
+}
+
+/* Leaflet dark integration */
+.leaflet-container {
+  background: #010f1f;
+  font-family: "JetBrains Mono", monospace;
+}
+.leaflet-control-attribution {
+  background: rgba(13, 28, 45, 0.7) !important;
+  color: #6b7a90 !important;
+  font-size: 9px !important;
+}
+.leaflet-control-attribution a {
+  color: #22d3ee !important;
+}
+.leaflet-bar a {
+  background: #122131 !important;
+  color: #22d3ee !important;
+  border-color: #45464d !important;
+}
+.leaflet-bar a:hover {
+  background: #1c2b3c !important;
+}
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #122131 !important;
+  color: #d4e4fa !important;
+  border: 1px solid #45464d;
+  border-radius: 0.5rem !important;
+}
+.fire-marker {
+  border-radius: 9999px;
+  box-shadow: 0 0 8px currentColor;
+}
