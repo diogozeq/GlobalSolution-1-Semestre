@@ -18,15 +18,18 @@ def _fire_activity(f: dict) -> tuple[float, dict]:
         / rules.BRIGHT_RANGE
         * 100
     )
+    frp = rules.clamp((f.get("avg_frp") or 0.0) / rules.FRP_CAP * 100)
     conf = rules.clamp(f["avg_confidence"] or 0.0)
     value = (
         rules.FIRE_W_COUNT * count
         + rules.FIRE_W_DENSITY * density
         + rules.FIRE_W_BRIGHT * bright
+        + rules.FIRE_W_FRP * frp
         + rules.FIRE_W_CONF * conf
     )
     return value, {"count": round(count, 1), "density": round(density, 1),
-                   "brightness": round(bright, 1), "confidence": round(conf, 1)}
+                   "brightness": round(bright, 1), "frp": round(frp, 1),
+                   "confidence": round(conf, 1)}
 
 
 def _weather_stress(f: dict) -> tuple[float, dict]:
@@ -50,7 +53,9 @@ def _spread(f: dict) -> float:
 def _trend(f: dict) -> float:
     if f["foci_7d"] <= 0:
         return 0.0
-    return rules.clamp(f["foci_24h"] / f["foci_7d"] * 100)
+    previous = max(f["foci_7d"] - f["foci_24h"], 0)
+    baseline = max(previous / 6, 1.0)
+    return rules.clamp((f["foci_24h"] / baseline) * 25)
 
 
 def score_region(features: dict) -> dict:
@@ -77,7 +82,14 @@ def score_region(features: dict) -> dict:
 
 def build_explanation(region: Region, result: dict, f: dict) -> str:
     comp = result["components"]
-    drivers = sorted(comp.items(), key=lambda kv: kv[1], reverse=True)
+    weights = rules.top_weights()
+    weighted = {
+        "fire_activity": comp["fire_activity"] * weights["fire"],
+        "weather_stress": comp["weather_stress"] * weights["weather"],
+        "spread_potential": comp["spread_potential"] * weights["spread"],
+        "trend": comp["trend"] * weights["trend"],
+    }
+    drivers = sorted(weighted.items(), key=lambda kv: kv[1], reverse=True)
     top = drivers[0][0].replace("_", " ")
     parts = [
         f"{region.name}: risco {result['level']} (score {result['score']}/100).",
@@ -95,7 +107,19 @@ def build_explanation(region: Region, result: dict, f: dict) -> str:
 def assess_region(session: Session, region: Region, ref) -> RiskAssessment:
     features = compute_features(session, region, ref)
     result = score_region(features)
-    payload = {**features, **result["components"]}
+    weights = rules.top_weights()
+    payload = {
+        **features,
+        **result["components"],
+        "fire_parts": result["fire_parts"],
+        "weather_parts": result["weather_parts"],
+        "weighted_components": {
+            "fire_activity": round(result["components"]["fire_activity"] * weights["fire"], 2),
+            "weather_stress": round(result["components"]["weather_stress"] * weights["weather"], 2),
+            "spread_potential": round(result["components"]["spread_potential"] * weights["spread"], 2),
+            "trend": round(result["components"]["trend"] * weights["trend"], 2),
+        },
+    }
     assessment = RiskAssessment(
         region_id=region.id,
         score=result["score"],
@@ -108,17 +132,20 @@ def assess_region(session: Session, region: Region, ref) -> RiskAssessment:
 
 
 def _manage_alert(session: Session, region: Region, assessment: RiskAssessment) -> None:
-    open_alerts = session.exec(
-        select(Alert).where(Alert.region_id == region.id, Alert.status == "open")
+    active_alerts = session.exec(
+        select(Alert).where(Alert.region_id == region.id, Alert.status.in_(["open", "ack"]))
     ).all()
     if assessment.level in ("Alto", "Critico"):
-        if open_alerts:
-            # update existing (dedup: one open alert per region)
-            alert = open_alerts[0]
+        if active_alerts:
+            # update existing (dedup: one active alert per region)
+            alert = active_alerts[0]
             alert.severity = assessment.level
             alert.score = assessment.score
             alert.reason = assessment.explanation
             session.add(alert)
+            for duplicate in active_alerts[1:]:
+                duplicate.status = "closed"
+                session.add(duplicate)
         else:
             session.add(
                 Alert(
@@ -130,7 +157,7 @@ def _manage_alert(session: Session, region: Region, assessment: RiskAssessment) 
                 )
             )
     else:
-        for alert in open_alerts:
+        for alert in active_alerts:
             alert.status = "closed"
             session.add(alert)
 

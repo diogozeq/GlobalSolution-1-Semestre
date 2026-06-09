@@ -36,3 +36,16 @@ def test_skips_invalid_rows():
     bad = "latitude,longitude,acq_date,acq_time\n,,2026-06-06,1200\n-1.0,-50.0,2026-06-06,1200\n"
     foci = parse_firms_csv(bad)
     assert len(foci) == 1
+
+
+def test_skips_invalid_acquisition_datetime():
+    bad = "latitude,longitude,acq_date,acq_time\n-1.0,-50.0,bad,1200\n"
+    foci = parse_firms_csv(bad)
+    assert foci == []
+
+
+def test_frp_is_not_brightness_fallback():
+    csv = "latitude,longitude,frp,acq_date,acq_time,confidence\n-1.0,-50.0,55,2026-06-06,1200,h\n"
+    foci = parse_firms_csv(csv)
+    assert foci[0]["brightness"] is None
+    assert foci[0]["frp"] == 55.0

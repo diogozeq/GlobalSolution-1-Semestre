@@ -1,4 +1,13 @@
-"""Knowledge-base loader + index (ChromaDB semantic, TF-IDF fallback)."""
+"""Knowledge-base loader + hybrid index (semantic ChromaDB + lexical TF-IDF).
+
+Retrieval strategy:
+- ChromaDB (cosine) gives semantic recall (paraphrases).
+- TF-IDF gives strong lexical recall (good for Portuguese keyword overlap, where
+  the default English MiniLM embeddings are weaker).
+- Results are fused with Reciprocal Rank Fusion (RRF) — scale-agnostic, robust.
+
+If ChromaDB is unavailable, the index degrades to pure TF-IDF (offline-safe).
+"""
 from __future__ import annotations
 
 import logging
@@ -15,7 +24,13 @@ logger = logging.getLogger("orbitguard.rag")
 
 KB_DIR = Path(__file__).resolve().parent.parent / "knowledge_base"
 _URL_RE = re.compile(r"https?://[^\s)\]]+")
-_COLLECTION = "orbitguard_kb"
+_HEADING_RE = re.compile(r"^#{1,6}\s*", re.MULTILINE)
+_COLLECTION = "orbitguard_kb_cos"  # cosine-space collection (v2)
+
+
+def _clean(text: str) -> str:
+    """Strip markdown heading hashes so cited chunks read cleanly."""
+    return _HEADING_RE.sub("", text).strip()
 
 
 def _load_chunks() -> list[dict]:
@@ -34,13 +49,28 @@ def _load_chunks() -> list[dict]:
             chunks.append(
                 {
                     "id": f"{path.stem}-{i}",
-                    "text": para,
+                    "text": _clean(para),
                     "title": title,
                     "source_url": source_url,
                     "file": path.name,
                 }
             )
     return chunks
+
+
+def _rrf(result_lists: list[list[dict]], k: int = 60) -> list[dict]:
+    """Reciprocal Rank Fusion of several ranked result lists (by chunk id)."""
+    scores: dict[str, float] = {}
+    meta: dict[str, dict] = {}
+    for lst in result_lists:
+        for rank, item in enumerate(lst):
+            cid = item.get("id")
+            if not cid:
+                continue
+            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
+            meta.setdefault(cid, item)
+    ranked = sorted(scores.keys(), key=lambda c: scores[c], reverse=True)
+    return [{**meta[c], "rrf": round(scores[c], 4)} for c in ranked]
 
 
 class KnowledgeIndex:
@@ -53,12 +83,11 @@ class KnowledgeIndex:
     # -- building --
     def build(self, force: bool = False) -> int:
         self.chunks = _load_chunks()
-        if settings.embeddings_provider != "none":
-            if self._build_chroma(force):
-                self.mode = "chroma"
-                return len(self.chunks)
-        self._tfidf = TfidfIndex(self.chunks)
-        self.mode = "tfidf"
+        self._tfidf = TfidfIndex(self.chunks)  # always available (cheap, offline)
+        if settings.embeddings_provider != "none" and self._build_chroma(force):
+            self.mode = "hybrid"
+        else:
+            self.mode = "tfidf"
         return len(self.chunks)
 
     def _build_chroma(self, force: bool) -> bool:
@@ -73,7 +102,9 @@ class KnowledgeIndex:
                     client.delete_collection(_COLLECTION)
                 except Exception:  # noqa: BLE001
                     pass
-            col = client.get_or_create_collection(_COLLECTION)
+            col = client.get_or_create_collection(
+                _COLLECTION, metadata={"hnsw:space": "cosine"}
+            )
             if force or col.count() == 0:
                 col.add(
                     ids=[c["id"] for c in self.chunks],
@@ -85,36 +116,43 @@ class KnowledgeIndex:
                 )
             self._collection = col
             return True
-        except Exception as exc:  # noqa: BLE001 - any failure -> fallback
+        except Exception as exc:  # noqa: BLE001 - any failure -> TF-IDF only
             logger.warning("ChromaDB unavailable, using TF-IDF fallback: %s", exc)
             return False
 
     # -- querying --
+    def _semantic(self, query: str, n: int) -> list[dict]:
+        res = self._collection.query(query_texts=[query], n_results=n)
+        ids = (res.get("ids") or [[]])[0]
+        docs = (res.get("documents") or [[]])[0]
+        metas = (res.get("metadatas") or [[]])[0]
+        dists = (res.get("distances") or [[None] * len(docs)])[0]
+        out: list[dict] = []
+        for cid, doc, meta, dist in zip(ids, docs, metas, dists):
+            out.append(
+                {
+                    "id": cid,
+                    "text": doc,
+                    "title": meta.get("title", ""),
+                    "source_url": meta.get("source_url", ""),
+                    "score": round(1 - dist, 4) if dist is not None else None,  # cosine sim
+                }
+            )
+        return out
+
     def search(self, query: str, k: int = 4) -> list[dict]:
         if self.mode is None:
             self.build()
-        if self.mode == "chroma" and self._collection is not None:
+        if self._collection is not None:
             try:
-                res = self._collection.query(query_texts=[query], n_results=k)
-                out: list[dict] = []
-                docs = res.get("documents", [[]])[0]
-                metas = res.get("metadatas", [[]])[0]
-                dists = res.get("distances", [[]])[0] if res.get("distances") else [None] * len(docs)
-                for doc, meta, dist in zip(docs, metas, dists):
-                    out.append(
-                        {
-                            "text": doc,
-                            "title": meta.get("title", ""),
-                            "source_url": meta.get("source_url", ""),
-                            "score": round(1 - dist, 4) if dist is not None else None,
-                        }
-                    )
-                if out:
-                    return out
-            except Exception as exc:  # noqa: BLE001 - degrade to tfidf
-                logger.warning("Chroma query failed, falling back: %s", exc)
-                if self._tfidf is None:
-                    self._tfidf = TfidfIndex(self.chunks)
+                pool = max(k * 3, 8)
+                semantic = self._semantic(query, pool)
+                lexical = self._tfidf.search(query, pool) if self._tfidf else []
+                fused = _rrf([semantic, lexical])
+                if fused:
+                    return fused[:k]
+            except Exception as exc:  # noqa: BLE001 - degrade to TF-IDF
+                logger.warning("Hybrid search failed, falling back to TF-IDF: %s", exc)
         if self._tfidf is None:
             self._tfidf = TfidfIndex(self.chunks)
         return self._tfidf.search(query, k)
@@ -152,3 +190,17 @@ def reindex(session: Session | None = None) -> dict:
             docs += 1
         session.commit()
     return {"indexed_chunks": n, "docs": docs or len({c["title"] for c in index.chunks}), "mode": index.mode}
+
+
+def current_mode() -> str:
+    """Report the RAG backend without forcing a (heavy) index build."""
+    if _INDEX is not None and _INDEX.mode:
+        return _INDEX.mode
+    if settings.embeddings_provider == "none":
+        return "tfidf"
+    try:
+        import chromadb  # noqa: F401
+
+        return "hybrid"
+    except Exception:  # noqa: BLE001
+        return "tfidf"

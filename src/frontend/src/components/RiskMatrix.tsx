@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Region, RiskItem } from "../types";
-import { RISK_PRIORITY, levelLabel, riskColor } from "../lib/risk";
+import { RISK_PRIORITY, levelLabel, riskBg, riskBorder, riskColor, riskGlowClass } from "../lib/risk";
 
 interface Props {
   regions: Region[];
@@ -16,7 +16,17 @@ interface Row {
   fireCount: number;
 }
 
+const LEVEL_FILTERS = [
+  { key: null,       label: "Todos" },
+  { key: "Critico",  label: "Crítico" },
+  { key: "Alto",     label: "Alto" },
+  { key: "Moderado", label: "Moderado" },
+  { key: "Baixo",    label: "Baixo" },
+] as const;
+
 export default function RiskMatrix({ regions, risk, fires, selectedRegionId, onSelect }: Props) {
+  const [levelFilter, setLevelFilter] = useState<string | null>(null);
+
   const rows = useMemo<Row[]>(() => {
     const riskMap = new Map(risk.map((r) => [r.region_id, r]));
     const counts = new Map<number, number>();
@@ -32,65 +42,142 @@ export default function RiskMatrix({ regions, risk, fires, selectedRegionId, onS
       .sort((a, b) => (b.item?.score ?? b.fireCount) - (a.item?.score ?? a.fireCount));
   }, [regions, risk, fires]);
 
+  const visibleRows = levelFilter ? rows.filter((r) => r.item?.level === levelFilter) : rows;
+
   return (
-    <div className="p-panel-padding bg-surface-container-high">
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="font-label-caps text-label-caps text-terminal-cyan uppercase tracking-widest">
-          Risk Matrix
-        </h3>
-        <span className="material-symbols-outlined text-on-surface-variant text-[18px]">info</span>
+    <div className="p-4" style={{ background: "#0B141C" }}>
+      {/* Header */}
+      <div className="flex justify-between items-center mb-3">
+        <div className="flex items-center gap-2">
+          <span className="font-data-mono text-[14px] text-terminal-cyan leading-none">▦</span>
+          <span className="font-data-mono text-[10px] text-terminal-cyan tracking-widest uppercase">
+            Matriz de Risco
+          </span>
+        </div>
+        <span className="font-data-mono text-[10px] text-on-surface-variant">
+          {visibleRows.length}/{rows.length}
+        </span>
       </div>
 
-      <div className="space-y-3">
-        {rows.map(({ region, item, fireCount }) => {
-          const color = riskColor(item?.level);
-          const glow =
-            item?.level === "Critico"
-              ? "risk-glow-critical"
-              : item?.level === "Alto"
-                ? "risk-glow-high"
-                : "border border-outline-variant";
-          const selected = selectedRegionId === region.id;
+      {/* Level filter chips */}
+      <div className="flex gap-1 flex-wrap mb-3">
+        {LEVEL_FILTERS.map(({ key, label }) => {
+          const active = levelFilter === key;
+          const color = key ? riskColor(key) : "#32D3C2";
+          return (
+            <button
+              key={label}
+              onClick={() => setLevelFilter(active ? null : key)}
+              className="font-data-mono text-[9px] px-2 py-0.5 rounded-full transition-all duration-120"
+              style={{
+                background: active ? `${color}22` : "rgba(255,255,255,0.03)",
+                color: active ? color : "#6F808A",
+                border: `1px solid ${active ? `${color}55` : "#1B2A36"}`,
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Table header */}
+      <div className="grid grid-cols-[1fr_auto_auto] gap-2 px-2 mb-1.5">
+        <span className="font-data-mono text-[9px] text-on-surface-variant tracking-widest uppercase">Região</span>
+        <span className="font-data-mono text-[9px] text-on-surface-variant tracking-widest uppercase">Score</span>
+        <span className="font-data-mono text-[9px] text-on-surface-variant tracking-widest uppercase">Nível</span>
+      </div>
+
+      <div className="space-y-1.5">
+        {visibleRows.map(({ region, item, fireCount }) => {
+          const color   = riskColor(item?.level);
+          const bg      = riskBg(item?.level);
+          const border  = riskBorder(item?.level);
+          const glow    = riskGlowClass(item?.level);
+          const isSel   = selectedRegionId === region.id;
+          const score   = item ? item.score : Math.min(fireCount * 6, 100);
+          const pct     = `${score.toFixed(0)}%`;
+
           return (
             <button
               key={region.id}
               onClick={() => onSelect(region.id)}
-              className={`w-full text-left bg-surface-container-highest p-3 rounded-lg transition-all ${glow} ${
-                selected ? "ring-1 ring-terminal-cyan" : ""
-              }`}
+              className={`w-full text-left rounded p-3 transition-all duration-150 ${glow}`}
+              style={{
+                background: isSel ? "rgba(50,211,194,0.06)" : "#101B24",
+                border: isSel
+                  ? "1px solid rgba(50,211,194,0.45)"
+                  : `1px solid ${border}`,
+                boxShadow: isSel ? "0 0 16px rgba(50,211,194,0.14)" : undefined,
+              }}
             >
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <div className="font-headline-md text-body-md font-bold text-on-surface">
+              {/* Row top */}
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <div className="min-w-0">
+                  <div className="text-[13px] font-semibold text-on-surface truncate">
                     {region.name}
                   </div>
-                  <div className="text-[10px] text-on-surface-variant font-label-caps">
-                    {region.state} Sectors
+                  <div className="font-data-mono text-[9px] text-on-surface-variant tracking-wider">
+                    {region.state} · {item ? `${fireCount} focos` : `${fireCount} foco(s)`}
                   </div>
                 </div>
-                <div
-                  className="px-2 py-0.5 rounded font-data-mono text-[12px] border"
-                  style={{ color, borderColor: `${color}66`, background: `${color}22` }}
-                >
-                  {item ? item.score.toFixed(1) : `${fireCount}🔥`}
+
+                {/* Score + Level badge */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <span
+                    className="font-data-mono text-[13px] font-semibold tabular-nums"
+                    style={{ color }}
+                  >
+                    {item ? item.score.toFixed(1) : "--"}
+                  </span>
+                  <span
+                    className="font-data-mono text-[9px] font-bold px-2 py-0.5 rounded-full tracking-wide"
+                    style={{ background: bg, color }}
+                  >
+                    {levelLabel(item?.level)}
+                  </span>
                 </div>
               </div>
-              <div className="w-full bg-surface-container rounded-full h-1.5 mb-2 overflow-hidden">
+
+              {/* Progress bar */}
+              <div
+                className="w-full h-1 rounded-full overflow-hidden"
+                style={{ background: "rgba(255,255,255,0.05)" }}
+              >
                 <div
-                  className="h-full transition-all"
-                  style={{ width: `${item ? item.score : Math.min(fireCount * 4, 100)}%`, background: color }}
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ width: pct, background: color, opacity: 0.85 }}
                 />
               </div>
-              <div className="flex justify-between text-[10px] font-label-caps text-on-surface-variant">
-                <span>STATUS: {levelLabel(item?.level)}</span>
-                <span>PRIORITY: {item ? RISK_PRIORITY[item.level] : "—"}</span>
+
+              {/* Footer row */}
+              <div className="flex justify-between mt-1.5">
+                <span className="font-data-mono text-[9px] text-on-surface-variant">
+                  {item?.explanation?.substring(0, 42) ?? "Aguardando cálculo de risco"}
+                  {item?.explanation && item.explanation.length > 42 ? "…" : ""}
+                </span>
+                {item && (
+                  <span
+                    className="font-data-mono text-[9px] font-bold"
+                    style={{ color }}
+                  >
+                    {RISK_PRIORITY[item.level]}
+                  </span>
+                )}
               </div>
             </button>
           );
         })}
-        {rows.length === 0 && (
-          <div className="text-on-surface-variant text-body-sm py-6 text-center font-label-caps text-[10px]">
-            AGUARDANDO DADOS DE INGESTÃO
+
+        {visibleRows.length === 0 && (
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <span className="font-data-mono text-[24px] text-on-surface-variant opacity-40 leading-none">⌁</span>
+            <p className="font-data-mono text-[10px] text-on-surface-variant opacity-60">
+              Nenhum dado de risco calculado.
+            </p>
+            <p className="font-data-mono text-[9px] text-on-surface-variant opacity-40">
+              Execute ingestão e recalcule.
+            </p>
           </div>
         )}
       </div>

@@ -8,10 +8,12 @@ from app.api import (
     fires,
     health,
     ingest,
+    ml,
     rag,
     regions,
     report,
     risk,
+    sensor,
     weather,
 )
 
@@ -29,5 +31,7 @@ api_router.include_router(alerts.router)
 api_router.include_router(report.router)
 api_router.include_router(chat.router)
 api_router.include_router(rag.router)
+api_router.include_router(ml.router)
+api_router.include_router(sensor.router)
 
 __all__ = ["api_router"]

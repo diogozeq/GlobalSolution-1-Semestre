@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=str(BACKEND_DIR / ".env"), env_file_encoding="utf-8", extra="ignore"
     )
 
     # App
@@ -29,10 +33,17 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     llm_report_models: str = (
-        "anthropic/claude-3.5-sonnet,openai/gpt-4o-mini,"
+        "minimax/minimax-m3,deepseek/deepseek-v4-flash,"
+        "xiaomi/mimo-v2.5,openrouter/owl-alpha,tencent/hy3-preview"
+    )
+    llm_agent_models: str = (
+        "deepseek/deepseek-v4-flash,minimax/minimax-m3,"
+        "tencent/hy3-preview,xiaomi/mimo-v2.5,openrouter/owl-alpha"
+    )
+    llm_fallback_models: str = (
+        "~openai/gpt-latest,~anthropic/claude-sonnet-latest,"
         "meta-llama/llama-3.1-8b-instruct"
     )
-    llm_agent_models: str = "openai/gpt-4o-mini,meta-llama/llama-3.1-8b-instruct"
 
     # RAG
     embeddings_provider: str = "local"  # local | none
@@ -55,11 +66,15 @@ class Settings(BaseSettings):
 
     @property
     def report_models(self) -> list[str]:
-        return [m.strip().lstrip("~") for m in self.llm_report_models.split(",") if m.strip()]
+        return [m.strip() for m in self.llm_report_models.split(",") if m.strip()]
 
     @property
     def agent_models(self) -> list[str]:
-        return [m.strip().lstrip("~") for m in self.llm_agent_models.split(",") if m.strip()]
+        return [m.strip() for m in self.llm_agent_models.split(",") if m.strip()]
+
+    @property
+    def fallback_models(self) -> list[str]:
+        return [m.strip() for m in self.llm_fallback_models.split(",") if m.strip()]
 
     @property
     def llm_enabled(self) -> bool:

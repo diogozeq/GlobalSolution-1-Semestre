@@ -16,16 +16,20 @@ from app.core.config import settings
 from app.core.http import ExternalAPIError, fetch_text
 from app.ingestion.base import (
     IngestResult,
+    fixture_exists,
     load_fixture,
     record_run,
     region_for_point,
 )
 from app.models import FireFocus, Region, utcnow
 
+from app.ingestion.brazil import BR_BBOX_W_S_E_N
+
 SOURCE_NAME = "FIRMS"
 FIXTURE = "fires_sample.csv"
 DEFAULT_SATELLITE_SOURCE = "VIIRS_SNPP_NRT"
 _BASE_URL = "https://firms.modaps.eosdis.nasa.gov/api/area/csv"
+_BR_BBOX = BR_BBOX_W_S_E_N
 
 # VIIRS confidence letters -> normalized 0-100
 _CONF_LETTER = {"l": 25.0, "n": 60.0, "h": 90.0}
@@ -52,7 +56,7 @@ def _to_float(raw: str | None) -> float | None:
         return None
 
 
-def _parse_acq_datetime(acq_date: str, acq_time: str) -> datetime:
+def _parse_acq_datetime(acq_date: str, acq_time: str) -> datetime | None:
     """Combine FIRMS acq_date (YYYY-MM-DD) and acq_time (HHMM) into UTC datetime."""
     try:
         time_str = (acq_time or "0").zfill(4)
@@ -60,7 +64,7 @@ def _parse_acq_datetime(acq_date: str, acq_time: str) -> datetime:
         d = datetime.strptime(acq_date, "%Y-%m-%d")
         return d.replace(hour=hour, minute=minute, tzinfo=timezone.utc)
     except (ValueError, TypeError):
-        return utcnow()
+        return None
 
 
 def parse_firms_csv(text: str, source: str = SOURCE_NAME) -> list[dict]:
@@ -75,21 +79,21 @@ def parse_firms_csv(text: str, source: str = SOURCE_NAME) -> list[dict]:
         lon = _to_float(row.get("longitude"))
         if lat is None or lon is None:
             continue
-        brightness = (
-            _to_float(row.get("brightness"))
-            or _to_float(row.get("bright_ti4"))
-            or _to_float(row.get("frp"))
+        acq_datetime = _parse_acq_datetime(
+            row.get("acq_date", ""), row.get("acq_time", "")
         )
+        if acq_datetime is None:
+            continue
+        brightness = _to_float(row.get("brightness")) or _to_float(row.get("bright_ti4"))
         foci.append(
             {
                 "source": source,
                 "lat": lat,
                 "lon": lon,
                 "brightness": brightness,
+                "frp": _to_float(row.get("frp")),
                 "confidence": _normalize_confidence(row.get("confidence")),
-                "acq_datetime": _parse_acq_datetime(
-                    row.get("acq_date", ""), row.get("acq_time", "")
-                ),
+                "acq_datetime": acq_datetime,
                 "satellite": (row.get("satellite") or row.get("instrument") or "").strip()
                 or None,
             }
@@ -100,7 +104,7 @@ def parse_firms_csv(text: str, source: str = SOURCE_NAME) -> list[dict]:
 async def _fetch_live(bbox: str, days: int, satellite_source: str) -> str:
     url = (
         f"{_BASE_URL}/{settings.firms_map_key}/{satellite_source}/"
-        f"{bbox}/{max(1, min(days, 10))}"
+        f"{bbox}/{max(1, min(days, 5))}"
     )
     return await fetch_text(url)
 
@@ -116,7 +120,7 @@ async def run(
     """Ingest fire foci. Falls back to fixture if live fetch is unavailable."""
     started = utcnow()
     regions = session.exec(select(Region)).all()
-    bbox = bbox or "-74,-34,-34,6"  # Brazil-wide default
+    bbox = bbox or _BR_BBOX
 
     text: str | None = None
     error: str | None = None
@@ -131,11 +135,24 @@ async def run(
                 raise ExternalAPIError("FIRMS returned non-CSV payload")
         except ExternalAPIError as exc:
             error = str(exc)
+    elif not use_fixture:
+        error = "FIRMS_MAP_KEY ausente; fonte FIRMS ignorada no modo real"
 
     if text is None:
-        text = load_fixture(FIXTURE)
-        used_fixture = True
-        status = "partial" if (not use_fixture and settings.firms_map_key) else "success"
+        if fixture_exists(FIXTURE):
+            text = load_fixture(FIXTURE)
+            used_fixture = True
+            status = "success"
+        else:
+            result = IngestResult(
+                source=SOURCE_NAME,
+                status="partial",
+                records_count=0,
+                error=error or "FIRMS indisponível e fixture ausente",
+                used_fixture=False,
+            )
+            record_run(session, result, started)
+            return result
 
     foci = parse_firms_csv(text, SOURCE_NAME)
 

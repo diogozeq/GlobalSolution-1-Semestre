@@ -46,7 +46,10 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled error on %s", request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"error": "Erro interno", "detail": str(exc)},
+        content={
+            "error": "Erro interno",
+            "detail": str(exc) if settings.environment == "development" else "internal_error",
+        },
     )
 
 

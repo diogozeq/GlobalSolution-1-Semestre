@@ -40,11 +40,38 @@ def _latest_weather(session: Session, region_id: int) -> WeatherReading | None:
     return preferred[0] if preferred else rows[0]
 
 
+def _dedupe_fires(fires: list[FireFocus]) -> list[FireFocus]:
+    """Collapse likely duplicate detections from FIRMS/INPE."""
+    grouped: dict[tuple[float, float, str], FireFocus] = {}
+    for fire in fires:
+        dt = _as_utc(fire.acq_datetime)
+        if dt is None:
+            continue
+        key = (round(fire.lat, 1), round(fire.lon, 1), dt.strftime("%Y%m%d%H"))
+        current = grouped.get(key)
+        if current is None:
+            grouped[key] = fire
+            continue
+        current_score = (current.brightness is not None, current.source == "FIRMS")
+        new_score = (fire.brightness is not None, fire.source == "FIRMS")
+        if new_score > current_score:
+            grouped[key] = fire
+            current = fire
+        if current.confidence is None or (
+            fire.confidence is not None and fire.confidence > current.confidence
+        ):
+            current.confidence = fire.confidence
+        if current.frp is None or (fire.frp is not None and fire.frp > current.frp):
+            current.frp = fire.frp
+    return list(grouped.values())
+
+
 def compute_features(session: Session, region: Region, ref: datetime) -> dict:
     """Return the raw feature dict used by the scoring engine."""
-    fires = session.exec(
+    raw_fires = session.exec(
         select(FireFocus).where(FireFocus.region_id == region.id)
     ).all()
+    fires = _dedupe_fires(raw_fires)
     win_24h = ref - timedelta(hours=24)
     win_7d = ref - timedelta(days=7)
 
@@ -52,6 +79,7 @@ def compute_features(session: Session, region: Region, ref: datetime) -> dict:
     recent_7d = [f for f in fires if _as_utc(f.acq_datetime) and _as_utc(f.acq_datetime) >= win_7d]
 
     bright_vals = [f.brightness for f in recent_7d if f.brightness is not None]
+    frp_vals = [f.frp for f in recent_7d if f.frp is not None]
     conf_vals = [f.confidence for f in recent_7d if f.confidence is not None]
 
     area_units = max((region.area_km2 or 1.0) / 1000.0, 1.0)
@@ -64,6 +92,7 @@ def compute_features(session: Session, region: Region, ref: datetime) -> dict:
         "foci_7d": len(recent_7d),
         "density_24h": round(density_24h, 4),
         "avg_brightness": round(sum(bright_vals) / len(bright_vals), 1) if bright_vals else None,
+        "avg_frp": round(sum(frp_vals) / len(frp_vals), 1) if frp_vals else None,
         "avg_confidence": round(sum(conf_vals) / len(conf_vals), 1) if conf_vals else None,
         "temp": weather.temp if weather else None,
         "humidity": weather.humidity if weather else None,

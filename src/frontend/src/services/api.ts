@@ -2,23 +2,32 @@ import axios from "axios";
 import type {
   Alert,
   ChatResponse,
+  CrossValidation,
   FireFocus,
+  HealthInfo,
   IngestRun,
   IngestRunResult,
   NaturalEvent,
   Region,
   ReportResult,
+  RiskHistoryPoint,
+  RiskSummaryItem,
   RiskItem,
+  SensorReading,
+  SensorRegionLatest,
   WeatherReading,
+  AlertStatus,
+  MlExperiment,
 } from "../types";
 
 const baseURL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+export const apiBaseURL = baseURL;
 
 export const api = axios.create({ baseURL, timeout: 120000 });
 
-export async function getHealth() {
+export async function getHealth(): Promise<HealthInfo> {
   const { data } = await api.get("/health");
-  return data as { status: string; version: string; time: string };
+  return data as HealthInfo;
 }
 
 export async function ingestRun(opts?: {
@@ -51,6 +60,7 @@ export async function getRegions(): Promise<Region[]> {
 export async function getFires(params?: {
   bbox?: string;
   source?: string;
+  limit?: number;
 }): Promise<FireFocus[]> {
   const { data } = await api.get("/fires", { params });
   return data;
@@ -67,7 +77,7 @@ export async function getEvents(): Promise<NaturalEvent[]> {
 }
 
 // ---- Etapa 2 (intelligence) ----
-export async function recalcRisk(): Promise<{ assessed: RiskItem[] }> {
+export async function recalcRisk(): Promise<{ assessed: RiskSummaryItem[] }> {
   const { data } = await api.post("/risk/recalculate");
   return data;
 }
@@ -82,7 +92,7 @@ export async function getAlerts(): Promise<Alert[]> {
   return data;
 }
 
-export async function patchAlertStatus(id: number, status: string): Promise<Alert> {
+export async function patchAlertStatus(id: number, status: AlertStatus): Promise<Alert> {
   const { data } = await api.patch(`/alerts/${id}/status`, { status });
   return data;
 }
@@ -97,7 +107,51 @@ export async function chat(question: string, regionId?: number): Promise<ChatRes
   return data;
 }
 
-export async function reindexRag(): Promise<{ indexed_chunks: number; docs: number }> {
+export async function reindexRag(): Promise<{ indexed_chunks: number; docs: number; mode?: string }> {
   const { data } = await api.post("/rag/reindex");
+  return data;
+}
+
+export async function runMlRiskLogreg(): Promise<MlExperiment> {
+  const { data } = await api.post("/ml/risk-logreg");
+  return data;
+}
+
+// ---- Enrichment endpoints ----
+export async function getFiresCrossValidation(): Promise<CrossValidation> {
+  const { data } = await api.get("/fires/cross-validation");
+  return data;
+}
+
+export async function getRiskHistory(regionId: number): Promise<RiskHistoryPoint[]> {
+  const { data } = await api.get(`/risk/${regionId}/history`);
+  return data;
+}
+
+// ---- Sensor (IoT/Edge) ----
+export async function postSensorReading(payload: {
+  region_id?: number | null;
+  device_id?: string;
+  temperature?: number | null;
+  humidity?: number | null;
+  smoke?: number | null;
+  soil_moisture?: number | null;
+}): Promise<SensorReading> {
+  const { data } = await api.post("/sensor/readings", payload);
+  return data;
+}
+
+export async function getSensorReadings(regionId?: number, limit = 50): Promise<SensorReading[]> {
+  const { data } = await api.get("/sensor/readings", { params: { region_id: regionId, limit } });
+  return data;
+}
+
+export async function getSensorLatest(regionId?: number): Promise<SensorReading | null> {
+  const { data } = await api.get("/sensor/latest", { params: { region_id: regionId } });
+  return data;
+}
+
+export async function getSensorRegionsLatest(): Promise<SensorRegionLatest[]> {
+  const { data } = await api.get("/sensor/regions-latest");
   return data;
 }

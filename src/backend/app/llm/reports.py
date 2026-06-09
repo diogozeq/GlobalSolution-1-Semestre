@@ -36,6 +36,8 @@ def _evidence_from_features(f: dict) -> list[str]:
     ]
     if f.get("avg_brightness"):
         ev.append(f"Brilho médio dos focos: {f['avg_brightness']} K.")
+    if f.get("avg_frp"):
+        ev.append(f"FRP médio dos focos: {f['avg_frp']} MW.")
     if f.get("avg_confidence"):
         ev.append(f"Confiança média de detecção: {f['avg_confidence']}%.")
     if f.get("humidity") is not None:
@@ -65,6 +67,31 @@ _ACTIONS = {
     ],
     "Baixo": ["Manter monitoramento de rotina."],
 }
+
+
+def _json_from_text(content: str) -> dict:
+    text = content.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(text[start : end + 1])
+        raise
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def _rule_based(region: Region, assessment: RiskAssessment, f: dict) -> ReportDoc:
@@ -109,15 +136,13 @@ def generate_report(session: Session, region_id: int) -> ReportResult:
             ],
             json_mode=True,
         )
-        data = json.loads(content)
+        data = _json_from_text(content)
         doc = ReportDoc(
             title=f"Laudo de Risco — {region.name}",
             risk_level=assessment.level,
             summary=str(data.get("summary") or assessment.explanation),
-            evidence=[str(x) for x in (data.get("evidence") or _evidence_from_features(features))],
-            recommended_actions=[
-                str(x) for x in (data.get("recommended_actions") or _ACTIONS.get(assessment.level, []))
-            ],
+            evidence=_evidence_from_features(features),
+            recommended_actions=_ACTIONS.get(assessment.level, _ACTIONS["Baixo"]),
         )
     except (LLMUnavailable, json.JSONDecodeError, KeyError, TypeError):
         doc = _rule_based(region, assessment, features)

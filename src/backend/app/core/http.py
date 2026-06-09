@@ -26,7 +26,10 @@ def _retry():
         reraise=True,
         stop=stop_after_attempt(settings.http_retries + 1),
         wait=wait_exponential(multiplier=0.5, min=0.5, max=4),
-        retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
+        retry=retry_if_exception_type(
+            # OSError covers socket.gaierror (DNS) and other low-level failures
+            (httpx.TransportError, httpx.HTTPStatusError, ExternalAPIError, OSError)
+        ),
     )
 
 

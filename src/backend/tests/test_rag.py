@@ -19,6 +19,12 @@ def test_chat_returns_sources(client):
     assert all("title" in s for s in data["sources"])
 
 
+def test_chat_accepts_short_operator_greeting(client):
+    resp = client.post("/chat", json={"question": "OI", "region_id": 1})
+    assert resp.status_code == 200
+    assert resp.json()["answer"]
+
+
 def test_chat_uses_region_tools(client):
     client.post("/ingest/run?use_fixture=true&sources=firms,weather,eonet")
     client.post("/risk/recalculate")
@@ -27,3 +33,14 @@ def test_chat_uses_region_tools(client):
     data = resp.json()
     # region detected -> live-data tools used
     assert "get_fires" in data["used_tools"]
+
+
+def test_generic_para_does_not_detect_para_region(client):
+    client.post("/ingest/run?use_fixture=true&sources=firms,weather,eonet")
+    client.post("/risk/recalculate")
+    resp = client.post(
+        "/chat",
+        json={"question": "O que posso fazer para reduzir risco de queimadas?"},
+    )
+    assert resp.status_code == 200
+    assert "get_fires" not in resp.json()["used_tools"]

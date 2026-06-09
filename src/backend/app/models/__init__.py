@@ -42,6 +42,7 @@ class FireFocus(SQLModel, table=True):
     lat: float
     lon: float
     brightness: float | None = None
+    frp: float | None = None
     confidence: float | None = None  # normalized 0-100
     acq_datetime: datetime
     satellite: str | None = None
@@ -99,6 +100,18 @@ class KnowledgeDocument(SQLModel, table=True):
     indexed_at: datetime = Field(default_factory=utcnow)
 
 
+class SensorReading(SQLModel, table=True):
+    """Ground sensor reading (ESP32/Wokwi simulation) — IoT/Edge layer."""
+    id: int | None = Field(default=None, primary_key=True)
+    region_id: int | None = Field(default=None, foreign_key="region.id", index=True)
+    device_id: str = "esp32-sim"
+    temperature: float | None = None   # °C
+    humidity: float | None = None      # %
+    smoke: float | None = None         # índice 0-100 (sensor de fumaça)
+    soil_moisture: float | None = None # %
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 __all__ = [
     "Region",
     "IngestRun",
@@ -108,5 +121,6 @@ __all__ = [
     "RiskAssessment",
     "Alert",
     "KnowledgeDocument",
+    "SensorReading",
     "utcnow",
 ]

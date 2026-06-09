@@ -6,18 +6,41 @@ settings and tried in order until one succeeds.
 from __future__ import annotations
 
 import logging
+from threading import Lock
 
 from app.core.config import settings
 
 logger = logging.getLogger("orbitguard.llm")
+_rotation_lock = Lock()
+_rotation_offsets: dict[str, int] = {"report": 0, "agent": 0}
 
 
 class LLMUnavailable(Exception):
     """Raised when no model could produce a completion (or no API key)."""
 
 
+def _dedupe(models: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for model in models:
+        if model and model not in seen:
+            seen.add(model)
+            out.append(model)
+    return out
+
+
+def _rotate(task: str, models: list[str]) -> list[str]:
+    if len(models) < 2:
+        return models
+    with _rotation_lock:
+        offset = _rotation_offsets.get(task, 0) % len(models)
+        _rotation_offsets[task] = offset + 1
+    return models[offset:] + models[:offset]
+
+
 def _models_for(task: str) -> list[str]:
-    return settings.report_models if task == "report" else settings.agent_models
+    primary = settings.report_models if task == "report" else settings.agent_models
+    return _dedupe(_rotate(task, primary) + settings.fallback_models)
 
 
 def chat_completion(
@@ -58,6 +81,15 @@ def chat_completion(
             if content.strip():
                 return content, model
         except Exception as exc:  # noqa: BLE001 - try next model
+            if json_mode:
+                try:
+                    kwargs.pop("response_format", None)
+                    resp = client.chat.completions.create(**kwargs)
+                    content = resp.choices[0].message.content or ""
+                    if content.strip():
+                        return content, model
+                except Exception as retry_exc:  # noqa: BLE001 - try next model
+                    logger.warning("LLM model %s failed without JSON mode: %s", model, retry_exc)
             logger.warning("LLM model %s failed: %s", model, exc)
             last_error = exc
             continue

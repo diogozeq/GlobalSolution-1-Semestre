@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlmodel import Session, select
 
 from app.db.session import get_session
 from app.models import Region, RiskAssessment
@@ -40,6 +40,25 @@ def list_risk(session: Session = Depends(get_session)) -> list[dict]:
     items = [_to_item(session, a) for a in rows]
     items.sort(key=lambda x: x["score"], reverse=True)
     return items
+
+
+@router.get("/{region_id}/history")
+def get_region_risk_history(
+    region_id: int,
+    limit: int = Query(40, ge=2, le=200),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    """Histórico de avaliações de risco da região (mais antigo → mais recente)."""
+    rows = session.exec(
+        select(RiskAssessment)
+        .where(RiskAssessment.region_id == region_id)
+        .order_by(RiskAssessment.id.desc())
+        .limit(limit)
+    ).all()
+    return [
+        {"score": r.score, "level": r.level, "created_at": r.created_at.isoformat()}
+        for r in reversed(rows)
+    ]
 
 
 @router.get("/{region_id}")

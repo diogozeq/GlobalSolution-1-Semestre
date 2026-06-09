@@ -37,3 +37,18 @@ def test_alert_status_patch(client):
         resp = client.patch(f"/alerts/{aid}/status", json={"status": "ack"})
         assert resp.status_code == 200
         assert resp.json()["status"] == "ack"
+
+
+def test_ack_alert_does_not_duplicate_on_recalc(client):
+    _setup(client)
+    alerts = [a for a in client.get("/alerts").json() if a["status"] == "open"]
+    assert alerts
+    aid = alerts[0]["id"]
+    region_id = alerts[0]["region_id"]
+    client.patch(f"/alerts/{aid}/status", json={"status": "ack"})
+    client.post("/risk/recalculate")
+    active = [
+        a for a in client.get("/alerts").json()
+        if a["region_id"] == region_id and a["status"] in ("open", "ack")
+    ]
+    assert len(active) == 1

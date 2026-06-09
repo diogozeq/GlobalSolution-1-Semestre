@@ -5,6 +5,8 @@ def test_health(client):
     assert data["status"] == "ok"
     assert "version" in data
     assert "time" in data
+    assert "firms_configured" in data
+    assert "llm_enabled" in data
 
 
 def test_regions_seeded(client):
